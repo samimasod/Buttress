@@ -5,6 +5,10 @@ from apps.api.config import settings as api_settings
 import apps.api.core.security.firebase_auth as firebase_auth_module
 from apps.api.core.security.firebase_auth import FirebaseAuthService
 from apps.api.core.security.jwt_auth import verify_local_token
+from apps.api.modules.agents.repository import AgentToolRepository
+from apps.api.modules.agents.schemas import AgentToolCreate
+from apps.api.modules.agents.service import AgentService
+import apps.api.modules.agents.service as agent_service_module
 from apps.api_admin.config import admin_settings
 import apps.api_admin.security as admin_security_module
 
@@ -81,3 +85,71 @@ async def test_superadmin_mock_token_allowed_in_dev(monkeypatch):
     )
 
     assert result is True
+
+
+def test_in_process_tool_execution_is_disabled_outside_dev(monkeypatch):
+    monkeypatch.setattr(agent_service_module.settings, "environment", "production")
+
+    with pytest.raises(RuntimeError, match="disabled outside local/test"):
+        agent_service_module.run_python_sandbox(
+            "def run(): return 'unsafe'",
+            {},
+        )
+
+
+@pytest.mark.asyncio
+async def test_tool_creation_persists_approval_policy():
+    class FakeSession:
+        def add(self, obj):
+            self.added = obj
+
+        async def flush(self):
+            return None
+
+    repo = AgentToolRepository(FakeSession())
+    tool = await repo.create_tool(
+        AgentToolCreate(
+            name="delete_record",
+            description="Deletes a record",
+            parameter_schema={"type": "object"},
+            code="def run(): return 'deleted'",
+            is_active=True,
+            ui_mode="both",
+            display_label_running="Deleting...",
+            display_label_completed="Deleted",
+            require_approval=True,
+            approval_required_for_roles=["member", "viewer"],
+        )
+    )
+
+    assert tool.require_approval is True
+    assert tool.approval_required_for_roles == ["member", "viewer"]
+    assert tool.ui_mode == "both"
+    assert tool.display_label_running == "Deleting..."
+    assert tool.display_label_completed == "Deleted"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_rejects_unattached_global_tool():
+    class FakeToolRepo:
+        async def get_tool_for_agent(self, agent_id, tool_name):
+            return None
+
+        async def get_tool(self, tool_name):
+            raise AssertionError("Global lookup must not be used for agent execution")
+
+    service = AgentService(
+        agent_repo=None,
+        tool_repo=FakeToolRepo(),
+        session_repo=None,
+        usage_repo=None,
+    )
+
+    with pytest.raises(ValueError, match="not available to this agent"):
+        await service.execute_tool(
+            tool_name="global_admin_tool",
+            arguments={},
+            triggered_by="user-1",
+            organization_id=1,
+            agent_id=10,
+        )

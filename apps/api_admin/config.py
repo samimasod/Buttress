@@ -3,8 +3,11 @@
 from pathlib import Path
 from typing import List, Optional
 import yaml
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+
+_DEV_ENVIRONMENTS = {"local", "test", "dev", "development"}
 
 
 def load_admin_yaml_config() -> dict:
@@ -41,8 +44,8 @@ class AdminSettings(BaseSettings):
     database_env: str = Field(default="local", alias="DATABASE_ENV")
     database_url: Optional[str] = Field(default=None, alias="DATABASE_URL")
 
-    super_admin_api_key: str = Field(
-        default=_yaml_admin_config.get("super_admin_api_key", "sk_admin_secret_key_12345"),
+    super_admin_api_key: Optional[str] = Field(
+        default=_yaml_admin_config.get("super_admin_api_key"),
         alias="SUPER_ADMIN_API_KEY"
     )
     super_admin_emails_raw: str = Field(default="", alias="SUPER_ADMIN_EMAILS")
@@ -75,6 +78,18 @@ class AdminSettings(BaseSettings):
                     pass
             return [item.strip() for item in v.split(",") if item.strip()]
         return v
+
+    @model_validator(mode="after")
+    def validate_admin_security(self):
+        if not self.is_development_environment and not self.admin_auth_enabled:
+            raise ValueError(
+                "ADMIN_AUTH_ENABLED cannot be disabled outside local/test environments"
+            )
+        return self
+
+    @property
+    def is_development_environment(self) -> bool:
+        return self.environment.lower() in _DEV_ENVIRONMENTS
 
     @property
     def super_admin_emails(self) -> List[str]:

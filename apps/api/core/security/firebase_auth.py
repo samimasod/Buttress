@@ -54,7 +54,7 @@ class FirebaseAuthService:
         self.initialized = False
         
         if not FIREBASE_AVAILABLE:
-            print("Warning: firebase-admin not installed. Auth will be mocked.")
+            print("Warning: firebase-admin not installed. Firebase auth is unavailable.")
             return
         
         # Check if Firebase is already initialized
@@ -93,12 +93,9 @@ class FirebaseAuthService:
             return local_user
 
         if not self.initialized or not FIREBASE_AVAILABLE:
-            return FirebaseUser(
-                uid="dev-user-123",
-                email="dev@example.com",
-                email_verified=True,
-                name="Dev User",
-            )
+            # Local JWT and explicitly dev-only mock tokens are handled above.
+            # Never turn an arbitrary bearer token into an authenticated user.
+            return None
         
         try:
             decoded_token = auth.verify_id_token(token)
@@ -110,7 +107,7 @@ class FirebaseAuthService:
     def get_user_by_uid(self, uid: str) -> Optional[dict]:
         """Get user info by UID."""
         if not self.initialized or not FIREBASE_AVAILABLE:
-            return {"uid": uid, "email": "dev@example.com"}
+            return None
         
         try:
             user = auth.get_user(uid)

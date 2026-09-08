@@ -14,6 +14,7 @@ from apps.api.modules.agents.models import (
     AgentMessage,
     AgentUsageLog,
     OrganizationUsageQuota,
+    agent_tool_association,
 )
 from apps.api.modules.agents.schemas import AgentCreate, AgentUpdate, AgentToolCreate, AgentToolUpdate
 
@@ -29,6 +30,11 @@ class AgentToolRepository:
             parameter_schema=data.parameter_schema,
             code=data.code,
             is_active=data.is_active,
+            ui_mode=data.ui_mode,
+            display_label_running=data.display_label_running,
+            display_label_completed=data.display_label_completed,
+            require_approval=data.require_approval,
+            approval_required_for_roles=data.approval_required_for_roles,
         )
         self.session.add(tool)
         await self.session.flush()
@@ -37,6 +43,21 @@ class AgentToolRepository:
     async def get_tool(self, name: str) -> Optional[AgentTool]:
         result = await self.session.execute(
             select(AgentTool).where(AgentTool.name == name)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_tool_for_agent(self, agent_id: int, name: str) -> Optional[AgentTool]:
+        """Return a tool only when it is explicitly attached to the agent."""
+        result = await self.session.execute(
+            select(AgentTool)
+            .join(
+                agent_tool_association,
+                AgentTool.name == agent_tool_association.c.tool_name,
+            )
+            .where(
+                agent_tool_association.c.agent_id == agent_id,
+                AgentTool.name == name,
+            )
         )
         return result.scalar_one_or_none()
 
@@ -564,4 +585,3 @@ class AgentUsageRepository:
             }
             for t_name, tot, succ, fail, appr, rej, dur in res.all()
         ]
-

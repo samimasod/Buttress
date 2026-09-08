@@ -78,6 +78,9 @@ class FakeAgentToolRepository:
         self.tools = tools or []
     async def get_tool(self, tool_name):
         return next((t for t in self.tools if getattr(t, "name", None) == tool_name), None)
+    async def get_tool_for_agent(self, agent_id, tool_name):
+        # Tests treat tools supplied to the fake repository as explicitly attached.
+        return await self.get_tool(tool_name)
     async def log_tool_run(self, *args, **kwargs):
         pass
 

@@ -87,9 +87,11 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
 
 
 def verify_local_token(token: str) -> Optional[FirebaseUser]:
-    """Verifies local JWT token or dev token and returns user dataclass."""
-    # Allow dev mock token strings
-    if token.startswith("dev-user-") or token.startswith("mock_"):
+    """Verifies local JWT token or explicitly development-only mock tokens."""
+    # Mock tokens are test/dev conveniences and must never authenticate in staging/production.
+    if settings.is_development_environment and (
+        token.startswith("dev-user-") or token.startswith("mock_")
+    ):
         return FirebaseUser(
             uid="dev-user-123",
             email="dev@example.com",

@@ -8,7 +8,11 @@ from apps.api_admin.main import app
 
 client = TestClient(app)
 
-AUTH_HEADERS = {"X-Admin-Api-Key": admin_settings.super_admin_api_key}
+AUTH_HEADERS = {
+    "X-Admin-Api-Key": (
+        admin_settings.super_admin_api_key or "mock_firebase_admin_token_unit_tests"
+    )
+}
 
 
 def test_admin_health_check():

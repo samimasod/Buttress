@@ -33,7 +33,15 @@ def run_python_sandbox(code: str, arguments: Dict[str, Any]) -> str:
     """
     Compiles and executes python code in a clean namespace.
     The code MUST define a 'run' function.
+
+    This is not OS-level sandboxing. Until tools execute in an isolated worker,
+    dynamic Python execution is restricted to explicit local/test environments.
     """
+    if not settings.is_development_environment:
+        raise RuntimeError(
+            "In-process Python tool execution is disabled outside local/test environments"
+        )
+
     local_env: Dict[str, Any] = {}
     global_env = {
         "__builtins__": __builtins__,
@@ -91,10 +99,15 @@ class AgentService:
         organization_id: Optional[int] = None,
         agent_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Loads and runs a tool's script in the sandbox environment, logging results."""
-        tool = await self.tool_repo.get_tool(tool_name)
+        """Loads and runs an authorized tool script, logging results."""
+        if agent_id is not None:
+            tool = await self.tool_repo.get_tool_for_agent(agent_id, tool_name)
+        else:
+            # Global lookup is reserved for explicit SuperAdmin test execution.
+            tool = await self.tool_repo.get_tool(tool_name)
+
         if not tool or not tool.is_active:
-            raise ValueError(f"Tool '{tool_name}' is not available")
+            raise ValueError(f"Tool '{tool_name}' is not available to this agent")
 
         start_time = time.perf_counter()
         output = None
@@ -625,10 +638,37 @@ class AgentService:
                     tool_id = tc["id"]
                     tool_args = tc["parsed_arguments"]
 
-                    matched_tool = next((t for t in agent.tools if t.name == tool_name), None)
-                    ui_mode = getattr(matched_tool, "ui_mode", "inline") if matched_tool else "inline"
-                    label_running = getattr(matched_tool, "display_label_running", None) if matched_tool else None
-                    label_completed = getattr(matched_tool, "display_label_completed", None) if matched_tool else None
+                    matched_tool = next((t for t in agent.tools if t.name == tool_name and t.is_active), None)
+                    if matched_tool is None:
+                        rejection = f"Tool '{tool_name}' is not available to this agent."
+                        logger.warning(
+                            "Rejected unattached or inactive tool call: "
+                            f"agent_id={agent.id} tool={tool_name} user={user_uid}"
+                        )
+                        yield {
+                            "type": "tool_denied",
+                            "tool_call_id": tool_id,
+                            "tool_name": tool_name,
+                            "reason": rejection,
+                        }
+                        await self.session_repo.create_message(
+                            session_id=session_id,
+                            role="tool",
+                            content=rejection,
+                            tool_call_id=tool_id,
+                            name=tool_name,
+                        )
+                        messages_context.append({
+                            "role": "tool",
+                            "content": rejection,
+                            "tool_call_id": tool_id,
+                            "name": tool_name,
+                        })
+                        continue
+
+                    ui_mode = getattr(matched_tool, "ui_mode", "inline")
+                    label_running = getattr(matched_tool, "display_label_running", None)
+                    label_completed = getattr(matched_tool, "display_label_completed", None)
 
                     yield {
                         "type": "tool_started",
@@ -640,7 +680,7 @@ class AgentService:
                         "display_label_completed": label_completed,
                     }
 
-                    needs_approval = self._requires_approval(matched_tool, user_role) if matched_tool else False
+                    needs_approval = self._requires_approval(matched_tool, user_role)
                     if needs_approval and approval_gate:
                         yield {
                             "type": "tool_approval_requested",

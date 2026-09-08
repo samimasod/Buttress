@@ -354,7 +354,7 @@ async def update_organization_quota(
 ):
     """Update organization monthly token quota and hard-limit policies."""
     role = await org_service.get_user_role(organization_id, user.uid)
-    check_permission(role, Permission.ORGANIZATION_UPDATE)
+    check_permission(role, Permission.ORG_UPDATE)
     quota = await repos["usage"].update_quota_config(organization_id, data.model_dump(exclude_unset=True))
     quota_pct = round((quota.tokens_used_this_month / quota.monthly_token_quota * 100.0), 1) if quota.monthly_token_quota > 0 else 0.0
     return OrganizationQuotaResponse(

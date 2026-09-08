@@ -74,8 +74,8 @@ async def agent_chat_websocket(websocket: WebSocket, agent_id: int):
 
         # 3. Retrieve agent
         agent = await agent_repo.get_agent(agent_id)
-        if not agent:
-            logger.warning(f"WebSocket rejected: Agent {agent_id} not found")
+        if not agent or not agent.is_active:
+            logger.warning(f"WebSocket rejected: Agent {agent_id} not found or inactive")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -115,6 +115,13 @@ async def agent_chat_websocket(websocket: WebSocket, agent_id: int):
                 )
                 await session.commit()
                 history_data = []
+            elif db_session.user_uid != user.uid or db_session.agent_id != agent_id:
+                logger.warning(
+                    "WebSocket rejected: session ownership mismatch "
+                    f"session={session_id} user={user.uid} agent={agent_id}"
+                )
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
             else:
                 history_data = [
                     {

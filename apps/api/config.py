@@ -7,8 +7,16 @@ from pathlib import Path
 from typing import List, Optional
 
 import yaml
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+
+_DEV_ENVIRONMENTS = {"local", "test", "dev", "development"}
+_DEFAULT_JWT_SECRET = "skeleton_local_jwt_secret_key_2026"
+_INSECURE_JWT_SECRETS = {
+    _DEFAULT_JWT_SECRET,
+    "replace-with-a-long-random-jwt-secret",
+}
 
 
 def load_yaml_config(file_path: str) -> dict:
@@ -25,7 +33,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="local", alias="DATABASE_ENV")
     debug: bool = Field(default=True, alias="API_DEBUG")
     sql_echo: bool = Field(default=False, alias="SQL_ECHO")
-    jwt_secret: str = Field(default="skeleton_local_jwt_secret_key_2026", alias="JWT_SECRET")
+    jwt_secret: str = Field(default=_DEFAULT_JWT_SECRET, alias="JWT_SECRET")
 
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
@@ -91,6 +99,21 @@ class Settings(BaseSettings):
                     pass
             return [item.strip() for item in v.split(",") if item.strip()]
         return v
+
+    @model_validator(mode="after")
+    def validate_security_defaults(self):
+        if (
+            self.environment.lower() not in _DEV_ENVIRONMENTS
+            and self.jwt_secret in _INSECURE_JWT_SECRETS
+        ):
+            raise ValueError(
+                "JWT_SECRET must be set to a strong unique value outside local/test environments"
+            )
+        return self
+
+    @property
+    def is_development_environment(self) -> bool:
+        return self.environment.lower() in _DEV_ENVIRONMENTS
 
     @property
     def llm_api_key(self) -> Optional[str]:

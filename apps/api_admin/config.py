@@ -1,5 +1,6 @@
 """Configuration settings for the SuperAdmin Monitoring API microservice."""
 
+import json
 from pathlib import Path
 from typing import List, Optional
 import yaml
@@ -8,6 +9,10 @@ from pydantic_settings import BaseSettings
 
 
 _DEV_ENVIRONMENTS = {"local", "test", "dev", "development"}
+_INSECURE_ADMIN_API_KEYS = {
+    "sk_admin_secret_key_12345",
+    "replace-with-a-strong-random-admin-key",
+}
 
 
 def load_admin_yaml_config() -> dict:
@@ -71,7 +76,6 @@ class AdminSettings(BaseSettings):
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             if v.startswith("[") and v.endswith("]"):
-                import json
                 try:
                     return json.loads(v)
                 except Exception:
@@ -81,9 +85,20 @@ class AdminSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_admin_security(self):
-        if not self.is_development_environment and not self.admin_auth_enabled:
+        if self.is_development_environment:
+            return self
+
+        if not self.admin_auth_enabled:
             raise ValueError(
                 "ADMIN_AUTH_ENABLED cannot be disabled outside local/test environments"
+            )
+        if self.super_admin_api_key in _INSECURE_ADMIN_API_KEYS:
+            raise ValueError(
+                "SUPER_ADMIN_API_KEY must be changed from the example/default value outside local/test environments"
+            )
+        if not self.super_admin_api_key and not self.super_admin_emails:
+            raise ValueError(
+                "Configure SUPER_ADMIN_API_KEY or SUPER_ADMIN_EMAILS outside local/test environments"
             )
         return self
 
@@ -93,9 +108,25 @@ class AdminSettings(BaseSettings):
 
     @property
     def super_admin_emails(self) -> List[str]:
+        raw = self.super_admin_emails_raw.strip()
+        if not raw:
+            return []
+
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [
+                        str(email).strip().lower()
+                        for email in parsed
+                        if str(email).strip()
+                    ]
+            except Exception:
+                pass
+
         return [
             email.strip().lower()
-            for email in self.super_admin_emails_raw.split(",")
+            for email in raw.split(",")
             if email.strip()
         ]
 
